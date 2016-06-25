@@ -4,6 +4,8 @@ import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.EventQueue;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
@@ -13,10 +15,13 @@ import java.io.ObjectOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
+import javax.swing.JButton;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -75,6 +80,9 @@ public class TriviaQuizGUI extends JFrame{
 	private JPanel panel;
 	private long startTime = 0;
 	private JLabel label;
+
+	private Map<String, Long> guessTimes = new HashMap<String, Long>();
+	private JButton btnReset;
 
 	public TriviaQuizGUI(){
 		this(Arrays.asList("Abacus", "Banana", "Cello", "Door", "Elephant"));
@@ -190,6 +198,19 @@ public class TriviaQuizGUI extends JFrame{
 
 		label = new JLabel("0:00:00");
 		panel.add(label, BorderLayout.WEST);
+
+		btnReset = new JButton("Reset");
+		btnReset.addActionListener(new ActionListener(){
+			@Override
+			public void actionPerformed(ActionEvent e){
+				tableData = emptyDataFromSize(data.size(), cols);
+				startTime = System.currentTimeMillis();
+				guessTimes = new HashMap<String, Long>();
+				save();
+				model.fireTableDataChanged();
+			}
+		});
+		panel.add(btnReset, BorderLayout.EAST);
 		textField.getDocument().addDocumentListener(new DocumentListener(){
 
 			@Override
@@ -206,9 +227,14 @@ public class TriviaQuizGUI extends JFrame{
 			public void changedUpdate(DocumentEvent e){
 				int index = data.indexOf(new Answer(textField.getText()));
 				if(index >= 0){
+					String text = data.get(index).getText();
+					if(guessTimes.containsKey(text)){
+						return;
+					}
+					guessTimes.put(text, System.currentTimeMillis() - startTime);
 					int cols = columnNames.length;
 					Coordinate transformed = tableIndex(index, data.size(), cols);
-					model.setValueAt(data.get(index).getText(), transformed.row, transformed.col);
+					model.setValueAt(text, transformed.row, transformed.col);
 					EventQueue.invokeLater(() -> textField.setText(""));
 				}
 			}
@@ -224,17 +250,20 @@ public class TriviaQuizGUI extends JFrame{
 			protected String doInBackground() throws Exception{
 				while(true){
 					Thread.sleep(10);
-					publish(calculateTime(System.currentTimeMillis() - startTime));
+					publish(calculateTime(System.currentTimeMillis() - startTime) + "; " + guessTimes.size() + "/"
+							+ data.size());
 				}
 			}
 		};
 		worker.execute();
 	}
 
+	@SuppressWarnings("unchecked")
 	public Object[][] load(){
 		try(ObjectInputStream ois = new ObjectInputStream(new FileInputStream("save.dat"))){
 			Object[][] o = (Object[][]) ois.readObject();
 			startTime = ois.readLong();
+			guessTimes = (HashMap<String, Long>) ois.readObject();
 			return o;
 		}
 		catch(ClassCastException e){
@@ -259,6 +288,7 @@ public class TriviaQuizGUI extends JFrame{
 		try(ObjectOutputStream oos = new ObjectOutputStream(new FileOutputStream("save.dat"))){
 			oos.writeObject(tableData);
 			oos.writeLong(System.currentTimeMillis() - startTime);
+			oos.writeObject(guessTimes);
 		}
 		catch(FileNotFoundException e){
 			// TODO Auto-generated catch block
